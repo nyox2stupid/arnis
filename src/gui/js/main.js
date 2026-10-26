@@ -3419,6 +3419,10 @@ async function startSplitGeneration() {
     if (info) { info.textContent = "Waiting for the Mapillary precompute. Cancel it in Settings, or let it finish."; info.style.color = "#fecc44"; }
     return;
   }
+  if (!isOneWorldEnabled() || selectedWorldFormat !== 'java' || selectedCelestialBody !== 'earth') {
+    openSplitDialog();
+    return;
+  }
   const width = Number(document.getElementById('split-width')?.value);
   const height = Number(document.getElementById('split-height')?.value);
   const overlap = Number(document.getElementById('split-overlap')?.value);
