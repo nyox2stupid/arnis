@@ -3577,7 +3577,7 @@ async function startGeneration(options = {}) {
 
     // Pass the selected options to the Rust backend
     await invoke("gui_start_generation", {
-        bboxText: selectedBBox,
+        bboxText: bboxText,
         selectedWorld: oneWorld ? savePath : worldPath,
         bedrockSavePath: bedrockSavePath,
         luantiSavePath: luantiSavePath,
