@@ -162,7 +162,22 @@
             </div>
           </div>
 
-          <dialog id="split-dialog"><h2>Split selected area</h2><input id="split-width" value="1000"><button id="split-cancel-button">Cancel</button></dialog>
+          <dialog id="split-dialog" class="split-dialog" aria-labelledby="split-dialog-title">
+            <form id="split-form">
+              <div class="split-dialog-header">
+                <div><h2 id="split-dialog-title">Split selected area</h2><p>Generate this rectangle as smaller chunks in the same One World.</p></div>
+                <button type="button" id="split-close-button" aria-label="Close">×</button>
+              </div>
+              <div class="split-fields">
+                <label for="split-width">Chunk width (metres)</label><input type="number" id="split-width" min="100" max="10000" step="100" value="1000" required>
+                <label for="split-height">Chunk height (metres)</label><input type="number" id="split-height" min="100" max="10000" step="100" value="1000" required>
+                <label for="split-overlap">Overlap per edge (metres)</label><input type="number" id="split-overlap" min="0" max="100" step="5" value="10" required>
+              </div>
+              <p id="split-preview">Choose chunk dimensions to preview the number of chunks.</p>
+              <p class="split-note">Requires Java Edition with One World enabled. Chunks run sequentially.</p>
+              <div class="split-dialog-actions"><button type="button" id="split-cancel-button">Cancel</button><button type="submit" id="split-generate-button">Generate split area</button></div>
+            </form>
+          </dialog>
           <div class="progress-section">
             <img src="" alt="" class="secret-parrot" id="secret-parrot">
             <span id="progress-info" class="progress-info-text"></span>
