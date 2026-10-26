@@ -3636,6 +3636,11 @@ async function startGeneration(options = {}) {
     // Hand the guard back unless a run actually started; once it has, the Done!/Error!
     // progress message releases it instead.
     if (!started) {
+      if (batchJob && splitBatch) {
+        splitBatch = null;
+        const splitButton = document.getElementById('split-button');
+        if (splitButton) splitButton.disabled = false;
+      }
       // Some abort paths say why (handleWorldSelectionError writes here); the
       // rest would leave our placeholder claiming a run that never began, so
       // clear it only if nothing else has taken the line since.
