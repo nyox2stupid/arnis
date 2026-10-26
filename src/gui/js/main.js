@@ -1065,6 +1065,11 @@ function setupProgressListener() {
       progressInfo.textContent = message;
 
       if (message.startsWith("Error!")) {
+        if (splitBatch) {
+          splitBatch = null;
+          const splitButton = document.getElementById('split-button');
+          if (splitButton) splitButton.disabled = false;
+        }
         progressInfo.style.color = "#fa7878";
         setGenerationButtonEnabled(true);
         window.arnisPreview3D?.setGenerationRunning(false);
@@ -1077,6 +1082,24 @@ function setupProgressListener() {
         }
         resetEta();
       } else if (message.startsWith("Done!")) {
+        if (splitBatch && splitBatch.currentIndex + 1 < splitBatch.boxes.length) {
+          const completed = splitBatch.currentIndex + 1;
+          splitBatch.currentIndex++;
+          const nextBox = splitBatch.boxes[splitBatch.currentIndex];
+          progressInfo.style.color = "#ececec";
+          progressInfo.textContent = `Chunk ${completed} of ${splitBatch.boxes.length} complete. Starting chunk ${splitBatch.currentIndex + 1}...`;
+          resetEta();
+          window.arnisPreview3D?.setGenerationRunning(false);
+          if (lastRunOneWorld) { oneWorldOverlayKey = null; refreshOneWorldState(); }
+          window.arnisPreview3D?.refreshFacades();
+          setTimeout(() => startGeneration({ bboxText: nextBox, batchJob: true }), 0);
+          return;
+        }
+        if (splitBatch) {
+          splitBatch = null;
+          const splitButton = document.getElementById('split-button');
+          if (splitButton) splitButton.disabled = false;
+        }
         progressInfo.style.color = "#7bd864";
         setGenerationButtonEnabled(true);
         window.arnisPreview3D?.setGenerationRunning(false);
