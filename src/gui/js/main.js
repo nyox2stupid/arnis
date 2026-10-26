@@ -3310,6 +3310,108 @@ function setGenerationButtonEnabled(enabled) {
   refreshPrecomputeButton();
 }
 
+function initSplitGenerationDialog() {
+  const dialog = document.getElementById('split-dialog');
+  const form = document.getElementById('split-form');
+  if (!dialog || !form) return;
+  const close = () => dialog.close();
+  document.getElementById('split-close-button')?.addEventListener('click', close);
+  document.getElementById('split-cancel-button')?.addEventListener('click', close);
+  ['split-width', 'split-height', 'split-overlap'].forEach(id =>
+    document.getElementById(id)?.addEventListener('input', updateSplitPreview));
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    dialog.close();
+    await startSplitGeneration();
+  });
+  updateSplitPreview();
+}
+
+function openSplitDialog() {
+  if (generationButtonEnabled === false || splitBatch) return;
+  if (!selectedBBox || selectedBBox === "0.000000 0.000000 0.000000 0.000000") {
+    setBboxSelectionInfo(document.getElementById('bbox-selection-info'), "select_location_first", "#fa7878");
+    return;
+  }
+  if (!isOneWorldEnabled() || selectedWorldFormat !== 'java' || selectedCelestialBody !== 'earth') {
+    const info = document.getElementById('progress-info');
+    if (info) { info.textContent = "Split generation requires Java Edition with One World enabled on Earth."; info.style.color = "#fecc44"; }
+    return;
+  }
+  const dialog = document.getElementById('split-dialog');
+  if (dialog && !dialog.open) { updateSplitPreview(); dialog.showModal(); }
+}
+
+function splitSelectedBBox(widthMeters, heightMeters, overlapMeters) {
+  const values = selectedBBox.split(/\s+/).map(Number);
+  if (values.length !== 4 || values.some(v => !Number.isFinite(v))) throw new Error("Invalid rectangle coordinates.");
+  const [south, west, north, east] = values;
+  if (!(south < north && west < east)) throw new Error("Select a valid rectangle before splitting.");
+  const midLat = (south + north) / 2;
+  const metersPerLat = 111320;
+  const metersPerLon = 111320 * Math.max(0.01, Math.cos(midLat * Math.PI / 180));
+  const height = (north - south) * metersPerLat;
+  const width = (east - west) * metersPerLon;
+  const rows = Math.ceil(height / heightMeters);
+  const cols = Math.ceil(width / widthMeters);
+  if (rows * cols > 1000) throw new Error("This split would create more than 1,000 chunks. Choose larger chunks.");
+  const latPad = overlapMeters / metersPerLat;
+  const lonPad = overlapMeters / metersPerLon;
+  const boxes = [];
+  for (let row = 0; row < rows; row++) {
+    const coreSouth = south + row * heightMeters / metersPerLat;
+    const coreNorth = Math.min(north, south + (row + 1) * heightMeters / metersPerLat);
+    for (let col = 0; col < cols; col++) {
+      const coreWest = west + col * widthMeters / metersPerLon;
+      const coreEast = Math.min(east, west + (col + 1) * widthMeters / metersPerLon);
+      boxes.push([
+        Math.max(south, coreSouth - latPad), Math.max(west, coreWest - lonPad),
+        Math.min(north, coreNorth + latPad), Math.min(east, coreEast + lonPad)
+      ].map(v => v.toFixed(8)).join(' '));
+    }
+  }
+  return { boxes, rows, cols, width, height };
+}
+
+function updateSplitPreview() {
+  const preview = document.getElementById('split-preview');
+  if (!preview) return;
+  const width = Number(document.getElementById('split-width')?.value);
+  const height = Number(document.getElementById('split-height')?.value);
+  const overlap = Number(document.getElementById('split-overlap')?.value);
+  if (![width, height, overlap].every(Number.isFinite) || width < 100 || height < 100 || overlap < 0 || overlap > 100) {
+    preview.textContent = "Enter valid chunk dimensions and overlap.";
+    return;
+  }
+  try {
+    const result = splitSelectedBBox(width, height, overlap);
+    preview.textContent = `${result.cols} columns × ${result.rows} rows = ${result.boxes.length} chunks (${Math.round(result.width)} m × ${Math.round(result.height)} m selected)`;
+  } catch (error) { preview.textContent = String(error); }
+}
+
+async function startSplitGeneration() {
+  if (generationButtonEnabled === false || splitBatch) return;
+  const width = Number(document.getElementById('split-width')?.value);
+  const height = Number(document.getElementById('split-height')?.value);
+  const overlap = Number(document.getElementById('split-overlap')?.value);
+  if (![width, height, overlap].every(Number.isFinite) || width < 100 || height < 100 || overlap < 0 || overlap > 100) {
+    updateSplitPreview();
+    return;
+  }
+  let split;
+  try { split = splitSelectedBBox(width, height, overlap); }
+  catch (error) {
+    const info = document.getElementById('progress-info');
+    if (info) { info.textContent = String(error); info.style.color = "#fa7878"; }
+    return;
+  }
+  if (!split.boxes.length) return;
+  splitBatch = { boxes: split.boxes, currentIndex: 0 };
+  const button = document.getElementById('split-button');
+  if (button) button.disabled = true;
+  await startGeneration({ bboxText: split.boxes[0], batchJob: true, preflightOneWorld: true });
+}
+
 /**
  * Initiates the world generation process
  * Validates required inputs and sends generation parameters to the backend
