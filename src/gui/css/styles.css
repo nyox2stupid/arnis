@@ -857,3 +857,18 @@ input[type="range"] {
 .split-dialog{padding:20px;border-radius:12px;max-width:420px}
 .split-dialog form{display:flex;flex-direction:column;gap:10px}
 .split-fields{display:grid;grid-template-columns:1fr 120px;gap:10px}
+
+.split-dialog{width:min(420px,calc(100vw - 32px));box-sizing:border-box;border:1px solid #555;background:#242424;color:#f5f5f5;box-shadow:0 18px 60px #0007}
+.split-dialog::backdrop{background:#0009}
+.split-dialog form{padding:22px}
+.split-dialog h2{margin:0 0 6px;font-size:19px}
+.split-dialog-header{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}
+.split-dialog-header p,.split-note{font-size:13px;color:#aaa;line-height:1.45}
+.split-fields{margin-top:18px;grid-template-columns:1fr 120px;align-items:center}
+.split-fields label{font-size:13px}
+.split-fields input{box-sizing:border-box;padding:8px;min-width:0;width:100%}
+#split-preview{font-size:14px;font-weight:600;margin:16px 0 8px}
+.split-note{margin:8px 0}
+.split-dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+.split-dialog-actions button{width:auto!important;padding:10px 14px}
+@media(prefers-color-scheme:light){.split-dialog{background:#fff;color:#222;border-color:#ddd}.split-dialog-header p,.split-note{color:#666}}
