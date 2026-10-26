@@ -3453,6 +3453,15 @@ async function startGeneration(options = {}) {
   const bboxText = options.bboxText || selectedBBox;
   const batchJob = options.batchJob === true;
   let startingMessage = STARTING_MESSAGE;
+  if (batchJob && (!isOneWorldEnabled() || selectedWorldFormat !== 'java' || selectedCelestialBody !== 'earth')) {
+    splitBatch = null;
+    const splitButton = document.getElementById('split-button');
+    if (splitButton) splitButton.disabled = false;
+    setGenerationButtonEnabled(true);
+    const info = document.getElementById('progress-info');
+    if (info) { info.textContent = "Split generation stopped because One World or Java Edition was disabled."; info.style.color = "#fa7878"; }
+    return;
+  }
   if (!batchJob && generationButtonEnabled === false) {
     return;
   }
