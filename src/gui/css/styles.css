@@ -851,3 +851,9 @@ input[type="range"] {
     opacity: 1;
   }
 }
+
+.split-button{width:66px!important;min-width:66px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
+.split-button svg{width:19px;height:19px}
+.split-dialog{padding:20px;border-radius:12px;max-width:420px}
+.split-dialog form{display:flex;flex-direction:column;gap:10px}
+.split-fields{display:grid;grid-template-columns:1fr 120px;gap:10px}
