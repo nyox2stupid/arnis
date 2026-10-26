@@ -21,6 +21,7 @@ if (window.__TAURI__) {
 }
 
 const DEFAULT_LOCALE_PATH = `./locales/en.json`;
+let splitBatch = null;
 
 // Track current bbox selection info localization key for language changes
 let currentBboxSelectionKey = "select_area_prompt";
@@ -45,6 +46,8 @@ async function setBboxSelectionInfo(bboxSelectionElement, localizationKey, color
 window.addEventListener("DOMContentLoaded", async () => {
   registerMessageEvent();
   window.startGeneration = startGeneration;
+  window.openSplitDialog = openSplitDialog;
+  initSplitGenerationDialog();
   setupProgressListener();
   await initSavePath();
   initSettings();
@@ -1062,6 +1065,11 @@ function setupProgressListener() {
       progressInfo.textContent = message;
 
       if (message.startsWith("Error!")) {
+        if (splitBatch) {
+          splitBatch = null;
+          const splitButton = document.getElementById('split-button');
+          if (splitButton) splitButton.disabled = false;
+        }
         progressInfo.style.color = "#fa7878";
         setGenerationButtonEnabled(true);
         window.arnisPreview3D?.setGenerationRunning(false);
@@ -1074,6 +1082,24 @@ function setupProgressListener() {
         }
         resetEta();
       } else if (message.startsWith("Done!")) {
+        if (splitBatch && splitBatch.currentIndex + 1 < splitBatch.boxes.length) {
+          const completed = splitBatch.currentIndex + 1;
+          splitBatch.currentIndex++;
+          const nextBox = splitBatch.boxes[splitBatch.currentIndex];
+          progressInfo.style.color = "#ececec";
+          progressInfo.textContent = `Chunk ${completed} of ${splitBatch.boxes.length} complete. Starting chunk ${splitBatch.currentIndex + 1}...`;
+          resetEta();
+          window.arnisPreview3D?.setGenerationRunning(false);
+          if (lastRunOneWorld) { oneWorldOverlayKey = null; refreshOneWorldState(); }
+          window.arnisPreview3D?.refreshFacades();
+          setTimeout(() => startGeneration({ bboxText: nextBox, batchJob: true }), 0);
+          return;
+        }
+        if (splitBatch) {
+          splitBatch = null;
+          const splitButton = document.getElementById('split-button');
+          if (splitButton) splitButton.disabled = false;
+        }
         progressInfo.style.color = "#7bd864";
         setGenerationButtonEnabled(true);
         window.arnisPreview3D?.setGenerationRunning(false);
@@ -2115,7 +2141,7 @@ function initPrecomputeFacadesButton() {
 
     try {
       const outcome = await invoke('gui_precompute_facades', {
-        bboxText: selectedBBox,
+        bboxText: bboxText,
         mapillaryToken: getMapillaryToken(),
       });
       // Green only when there are facades here now. A cancelled run and an
@@ -3208,7 +3234,7 @@ function confirmOneWorldOverlap(count) {
 }
 
 // Checks the world right before a run. Returns false when the run must not start.
-async function prepareOneWorldRun() {
+async function prepareOneWorldRun(bboxText = selectedBBox) {
   if (!savePath) {
     renderOneWorldStatus();
     return false;
@@ -3234,7 +3260,7 @@ async function prepareOneWorldRun() {
   let overlap = 0;
   try {
     overlap = await invoke('gui_one_world_overlap', {
-      savePath: savePath, worldName: oneWorldFolderName(), bboxText: selectedBBox
+      savePath: savePath, worldName: oneWorldFolderName(), bboxText: bboxText
     });
   } catch (error) {
     setOneWorldStatus(String(error), 'error');
@@ -3307,13 +3333,127 @@ function setGenerationButtonEnabled(enabled) {
   refreshPrecomputeButton();
 }
 
+function initSplitGenerationDialog() {
+  const dialog = document.getElementById('split-dialog');
+  const form = document.getElementById('split-form');
+  if (!dialog || !form) return;
+  const close = () => dialog.close();
+  document.getElementById('split-close-button')?.addEventListener('click', close);
+  document.getElementById('split-cancel-button')?.addEventListener('click', close);
+  ['split-width', 'split-height', 'split-overlap'].forEach(id =>
+    document.getElementById(id)?.addEventListener('input', updateSplitPreview));
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    dialog.close();
+    await startSplitGeneration();
+  });
+  updateSplitPreview();
+}
+
+function openSplitDialog() {
+  if (generationButtonEnabled === false || splitBatch) return;
+  if (!selectedBBox || selectedBBox === "0.000000 0.000000 0.000000 0.000000") {
+    setBboxSelectionInfo(document.getElementById('bbox-selection-info'), "select_location_first", "#fa7878");
+    return;
+  }
+  if (!isOneWorldEnabled() || selectedWorldFormat !== 'java' || selectedCelestialBody !== 'earth') {
+    const info = document.getElementById('progress-info');
+    if (info) { info.textContent = "Split generation requires Java Edition with One World enabled on Earth."; info.style.color = "#fecc44"; }
+    return;
+  }
+  const dialog = document.getElementById('split-dialog');
+  if (dialog && !dialog.open) { updateSplitPreview(); dialog.showModal(); }
+}
+
+function splitSelectedBBox(widthMeters, heightMeters, overlapMeters) {
+  const values = selectedBBox.split(/\s+/).map(Number);
+  if (values.length !== 4 || values.some(v => !Number.isFinite(v))) throw new Error("Invalid rectangle coordinates.");
+  const [south, west, north, east] = values;
+  if (!(south < north && west < east)) throw new Error("Select a valid rectangle before splitting.");
+  const midLat = (south + north) / 2;
+  const metersPerLat = 111320;
+  const metersPerLon = 111320 * Math.max(0.01, Math.cos(midLat * Math.PI / 180));
+  const height = (north - south) * metersPerLat;
+  const width = (east - west) * metersPerLon;
+  const rows = Math.ceil(height / heightMeters);
+  const cols = Math.ceil(width / widthMeters);
+  if (rows * cols > 1000) throw new Error("This split would create more than 1,000 chunks. Choose larger chunks.");
+  const latPad = overlapMeters / metersPerLat;
+  const lonPad = overlapMeters / metersPerLon;
+  const boxes = [];
+  for (let row = 0; row < rows; row++) {
+    const coreSouth = south + row * heightMeters / metersPerLat;
+    const coreNorth = Math.min(north, south + (row + 1) * heightMeters / metersPerLat);
+    for (let col = 0; col < cols; col++) {
+      const coreWest = west + col * widthMeters / metersPerLon;
+      const coreEast = Math.min(east, west + (col + 1) * widthMeters / metersPerLon);
+      boxes.push([
+        Math.max(south, coreSouth - latPad), Math.max(west, coreWest - lonPad),
+        Math.min(north, coreNorth + latPad), Math.min(east, coreEast + lonPad)
+      ].map(v => v.toFixed(8)).join(' '));
+    }
+  }
+  return { boxes, rows, cols, width, height };
+}
+
+function updateSplitPreview() {
+  const preview = document.getElementById('split-preview');
+  if (!preview) return;
+  const width = Number(document.getElementById('split-width')?.value);
+  const height = Number(document.getElementById('split-height')?.value);
+  const overlap = Number(document.getElementById('split-overlap')?.value);
+  if (![width, height, overlap].every(Number.isFinite) || width < 100 || height < 100 || overlap < 0 || overlap > 100) {
+    preview.textContent = "Enter valid chunk dimensions and overlap.";
+    return;
+  }
+  try {
+    const result = splitSelectedBBox(width, height, overlap);
+    preview.textContent = `${result.cols} columns × ${result.rows} rows = ${result.boxes.length} chunks (${Math.round(result.width)} m × ${Math.round(result.height)} m selected)`;
+  } catch (error) { preview.textContent = String(error); }
+}
+
+async function startSplitGeneration() {
+  if (generationButtonEnabled === false || splitBatch) return;
+  if (precomputeRunning) {
+    const info = document.getElementById('progress-info');
+    if (info) { info.textContent = "Waiting for the Mapillary precompute. Cancel it in Settings, or let it finish."; info.style.color = "#fecc44"; }
+    return;
+  }
+  if (!isOneWorldEnabled() || selectedWorldFormat !== 'java' || selectedCelestialBody !== 'earth') {
+    openSplitDialog();
+    return;
+  }
+  const width = Number(document.getElementById('split-width')?.value);
+  const height = Number(document.getElementById('split-height')?.value);
+  const overlap = Number(document.getElementById('split-overlap')?.value);
+  if (![width, height, overlap].every(Number.isFinite) || width < 100 || height < 100 || overlap < 0 || overlap > 100) {
+    updateSplitPreview();
+    return;
+  }
+  let split;
+  try { split = splitSelectedBBox(width, height, overlap); }
+  catch (error) {
+    const info = document.getElementById('progress-info');
+    if (info) { info.textContent = String(error); info.style.color = "#fa7878"; }
+    return;
+  }
+  if (!split.boxes.length) return;
+  splitBatch = { boxes: split.boxes, currentIndex: 0 };
+  const button = document.getElementById('split-button');
+  if (button) button.disabled = true;
+  await startGeneration({ bboxText: split.boxes[0], preflightBBoxText: selectedBBox, batchJob: true, preflightOneWorld: true });
+}
+
 /**
  * Initiates the world generation process
  * Validates required inputs and sends generation parameters to the backend
  * @returns {Promise<void>}
  */
-async function startGeneration() {
-  if (generationButtonEnabled === false) {
+async function startGeneration(options = {}) {
+  const bboxText = options.bboxText || selectedBBox;
+  const batchJob = options.batchJob === true;
+  let startingMessage = STARTING_MESSAGE;
+  if (!batchJob && generationButtonEnabled === false) {
     return;
   }
   // The backend refuses this too, but only after gui_create_world has already
@@ -3334,17 +3474,18 @@ async function startGeneration() {
   let started = false;
 
   try {
-    if (!selectedBBox || selectedBBox == "0.000000 0.000000 0.000000 0.000000") {
+    if (!bboxText || bboxText == "0.000000 0.000000 0.000000 0.000000") {
       const bboxSelectionInfo = document.getElementById('bbox-selection-info');
       setBboxSelectionInfo(bboxSelectionInfo, "select_location_first", "#fa7878");
       return;
     }
 
     // Past every synchronous refusal, so from here the click is a real start.
-    resetProgressUi(STARTING_MESSAGE);
+    startingMessage = batchJob && splitBatch ? `Starting chunk ${splitBatch.currentIndex + 1} of ${splitBatch.boxes.length}...` : STARTING_MESSAGE;
+    resetProgressUi(startingMessage);
 
     const oneWorld = isOneWorldEnabled();
-    if (oneWorld && !(await prepareOneWorldRun())) {
+    if (oneWorld && !(batchJob && !options.preflightOneWorld) && !(await prepareOneWorldRun(options.preflightBBoxText || bboxText))) {
       const info = document.getElementById('progress-info');
       if (info && info.textContent === STARTING_MESSAGE) info.textContent = "";
       return;
@@ -3445,7 +3586,7 @@ async function startGeneration() {
 
     // Pass the selected options to the Rust backend
     await invoke("gui_start_generation", {
-        bboxText: selectedBBox,
+        bboxText: bboxText,
         selectedWorld: oneWorld ? savePath : worldPath,
         bedrockSavePath: bedrockSavePath,
         luantiSavePath: luantiSavePath,
@@ -3504,11 +3645,16 @@ async function startGeneration() {
     // Hand the guard back unless a run actually started; once it has, the Done!/Error!
     // progress message releases it instead.
     if (!started) {
+      if (batchJob && splitBatch) {
+        splitBatch = null;
+        const splitButton = document.getElementById('split-button');
+        if (splitButton) splitButton.disabled = false;
+      }
       // Some abort paths say why (handleWorldSelectionError writes here); the
       // rest would leave our placeholder claiming a run that never began, so
       // clear it only if nothing else has taken the line since.
       const info = document.getElementById('progress-info');
-      if (info && info.textContent === STARTING_MESSAGE) info.textContent = "";
+      if (info && (info.textContent === STARTING_MESSAGE || info.textContent === startingMessage)) info.textContent = "";
       setGenerationButtonEnabled(true);
       window.arnisPreview3D?.setGenerationRunning(false);
     }
