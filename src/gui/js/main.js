@@ -3441,7 +3441,7 @@ async function startSplitGeneration() {
   splitBatch = { boxes: split.boxes, currentIndex: 0 };
   const button = document.getElementById('split-button');
   if (button) button.disabled = true;
-  await startGeneration({ bboxText: split.boxes[0], batchJob: true, preflightOneWorld: true });
+  await startGeneration({ bboxText: split.boxes[0], preflightBBoxText: selectedBBox, batchJob: true, preflightOneWorld: true });
 }
 
 /**
@@ -3485,7 +3485,7 @@ async function startGeneration(options = {}) {
     resetProgressUi(startingMessage);
 
     const oneWorld = isOneWorldEnabled();
-    if (oneWorld && !(batchJob && !options.preflightOneWorld) && !(await prepareOneWorldRun(bboxText))) {
+    if (oneWorld && !(batchJob && !options.preflightOneWorld) && !(await prepareOneWorldRun(options.preflightBBoxText || bboxText))) {
       const info = document.getElementById('progress-info');
       if (info && info.textContent === STARTING_MESSAGE) info.textContent = "";
       return;
