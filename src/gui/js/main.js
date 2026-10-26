@@ -21,6 +21,7 @@ if (window.__TAURI__) {
 }
 
 const DEFAULT_LOCALE_PATH = `./locales/en.json`;
+let splitBatch = null;
 
 // Track current bbox selection info localization key for language changes
 let currentBboxSelectionKey = "select_area_prompt";
@@ -45,6 +46,8 @@ async function setBboxSelectionInfo(bboxSelectionElement, localizationKey, color
 window.addEventListener("DOMContentLoaded", async () => {
   registerMessageEvent();
   window.startGeneration = startGeneration;
+  window.openSplitDialog = openSplitDialog;
+  initSplitGenerationDialog();
   setupProgressListener();
   await initSavePath();
   initSettings();
@@ -2115,7 +2118,7 @@ function initPrecomputeFacadesButton() {
 
     try {
       const outcome = await invoke('gui_precompute_facades', {
-        bboxText: selectedBBox,
+        bboxText: bboxText,
         mapillaryToken: getMapillaryToken(),
       });
       // Green only when there are facades here now. A cancelled run and an
@@ -3208,7 +3211,7 @@ function confirmOneWorldOverlap(count) {
 }
 
 // Checks the world right before a run. Returns false when the run must not start.
-async function prepareOneWorldRun() {
+async function prepareOneWorldRun(bboxText = selectedBBox) {
   if (!savePath) {
     renderOneWorldStatus();
     return false;
@@ -3234,7 +3237,7 @@ async function prepareOneWorldRun() {
   let overlap = 0;
   try {
     overlap = await invoke('gui_one_world_overlap', {
-      savePath: savePath, worldName: oneWorldFolderName(), bboxText: selectedBBox
+      savePath: savePath, worldName: oneWorldFolderName(), bboxText: bboxText
     });
   } catch (error) {
     setOneWorldStatus(String(error), 'error');
@@ -3312,8 +3315,11 @@ function setGenerationButtonEnabled(enabled) {
  * Validates required inputs and sends generation parameters to the backend
  * @returns {Promise<void>}
  */
-async function startGeneration() {
-  if (generationButtonEnabled === false) {
+async function startGeneration(options = {}) {
+  const bboxText = options.bboxText || selectedBBox;
+  const batchJob = options.batchJob === true;
+  let startingMessage = STARTING_MESSAGE;
+  if (!batchJob && generationButtonEnabled === false) {
     return;
   }
   // The backend refuses this too, but only after gui_create_world has already
@@ -3334,17 +3340,18 @@ async function startGeneration() {
   let started = false;
 
   try {
-    if (!selectedBBox || selectedBBox == "0.000000 0.000000 0.000000 0.000000") {
+    if (!bboxText || bboxText == "0.000000 0.000000 0.000000 0.000000") {
       const bboxSelectionInfo = document.getElementById('bbox-selection-info');
       setBboxSelectionInfo(bboxSelectionInfo, "select_location_first", "#fa7878");
       return;
     }
 
     // Past every synchronous refusal, so from here the click is a real start.
-    resetProgressUi(STARTING_MESSAGE);
+    startingMessage = batchJob && splitBatch ? `Starting chunk ${splitBatch.currentIndex + 1} of ${splitBatch.boxes.length}...` : STARTING_MESSAGE;
+    resetProgressUi(startingMessage);
 
     const oneWorld = isOneWorldEnabled();
-    if (oneWorld && !(await prepareOneWorldRun())) {
+    if (oneWorld && !(batchJob && !options.preflightOneWorld) && !(await prepareOneWorldRun(bboxText))) {
       const info = document.getElementById('progress-info');
       if (info && info.textContent === STARTING_MESSAGE) info.textContent = "";
       return;
@@ -3508,7 +3515,7 @@ async function startGeneration() {
       // rest would leave our placeholder claiming a run that never began, so
       // clear it only if nothing else has taken the line since.
       const info = document.getElementById('progress-info');
-      if (info && info.textContent === STARTING_MESSAGE) info.textContent = "";
+      if (info && (info.textContent === STARTING_MESSAGE || info.textContent === startingMessage)) info.textContent = "";
       setGenerationButtonEnabled(true);
       window.arnisPreview3D?.setGenerationRunning(false);
     }
