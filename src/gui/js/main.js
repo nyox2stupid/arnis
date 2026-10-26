@@ -3414,6 +3414,11 @@ function updateSplitPreview() {
 
 async function startSplitGeneration() {
   if (generationButtonEnabled === false || splitBatch) return;
+  if (precomputeRunning) {
+    const info = document.getElementById('progress-info');
+    if (info) { info.textContent = "Waiting for the Mapillary precompute. Cancel it in Settings, or let it finish."; info.style.color = "#fecc44"; }
+    return;
+  }
   const width = Number(document.getElementById('split-width')?.value);
   const height = Number(document.getElementById('split-height')?.value);
   const overlap = Number(document.getElementById('split-overlap')?.value);
